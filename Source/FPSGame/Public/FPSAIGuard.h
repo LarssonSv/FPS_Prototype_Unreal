@@ -33,12 +33,6 @@ public:
 	// Sets default values for this character's properties
 	AFPSAIGuard();
 
-	UPROPERTY(EditAnywhere)
-		TArray<ATargetPoint*> Waypoints;
-
-	UFUNCTION()
-		void SetTargetLocation(const FVector& TargetLocation);
-
 	UFUNCTION()
 		void CheckDistanceToWaypoint();
 
@@ -51,29 +45,47 @@ protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
-		UPawnSensingComponent* PawnSensingComp;
+	UPawnSensingComponent* PawnSensingComp;
 
 	UFUNCTION()
-		void OnPawnSeen(APawn* SeenPawn);
+	void OnPawnSeen(APawn* SeenPawn);
 
 	UFUNCTION()
-		void OnPawnHeard(APawn* SeenTarget, const FVector& Location, float Volume);
+	void OnPawnHeard(APawn* SeenTarget, const FVector& Location, float Volume);
 
 	UPROPERTY(BlueprintReadOnly, Category = "Oringal Rotation")
-		FRotator OrginalRotation;
+	FRotator OrginalRotation;
 
 	UFUNCTION()
-		void ResetOrientation();
+	void ResetOrientation();
 
 	FTimerHandle TimerHandle_ResetRotation;
 
+	UPROPERTY(ReplicatedUsing=OnRep_GuardState)
 	EAIState GuardState;
 
-	UFUNCTION()
-		void SetGuardState(EAIState NewState);
 
-	UFUNCTION(BlueprintImplementableEvent, Category = AI)
-		void OnStateChanged(EAIState NewState);
+
+	void MoveToNextPatrolPoint();
+
+	UPROPERTY(EditInstanceOnly, Category = "AI")
+	bool bPatrol;
+
+	void SetGuardState(EAIState x);
+
+	UPROPERTY(EditInstanceOnly, Category = "AI", meta = (EditCondition = "bPatrol"))
+		AActor* FirstControlPoint;
+
+	UPROPERTY(EditInstanceOnly, Category = "AI", meta = (EditCondition = "bPatrol"))
+	AActor* SecondControlPoint;
+
+	AActor* CurrentControlPoint;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "AI")
+	void OnStateChanged(EAIState x);
+
+	UFUNCTION()
+	void OnRep_GuardState();
 
 
 public:
@@ -82,5 +94,6 @@ public:
 
 
 
+	void GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const;
 };
 

@@ -4,17 +4,12 @@
 #include "Perception/PawnSensingComponent.h"
 #include "DrawDebugHelpers.h"
 #include "FPSGameMode.h"
-#include <GameFramework/Actor.h>
-#include "TimerManager.h"
-#include <NavigationSystem.h>
-#include <AIController.h>
-#include "BehaviorTree/BlackboardComponent.h"
-#include <Kismet/KismetSystemLibrary.h>
-#include "Engine/World.h"
+#include "Net/UnrealNetwork.h"
+#include "NavigationSystem.h"
+#include "AI/NavigationSystemBase.h"
+#include <Blueprint/AIBlueprintHelperLibrary.h>
 
 
-
-// Sets default values
 AFPSAIGuard::AFPSAIGuard()
 {
 	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
@@ -29,67 +24,30 @@ AFPSAIGuard::AFPSAIGuard()
 
 }
 
-
-
-// Called when the game starts or when spawned
 void AFPSAIGuard::BeginPlay()
 {
 	Super::BeginPlay();
 
 	OrginalRotation = this->GetActorRotation();
 
-	if (Waypoints.Num() > 1)
+	if (bPatrol)
 	{
-		CurrentWaypointIndex = 0;
-
-		FVector temp = Waypoints[0]->GetActorLocation();
-
-
-		SetTargetLocation(temp);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Too few waypoints!"));
+		MoveToNextPatrolPoint();
 	}
 }
-
-void AFPSAIGuard::SetTargetLocation(const FVector& TargetLocation)
-{
-	FVector ProjectedLocation;
-
-	if (UNavigationSystemV1::K2_ProjectPointToNavigation(GetWorld(), TargetLocation, ProjectedLocation, nullptr, TSubclassOf<UNavigationQueryFilter>()))
-	{
-		if (AAIController* AIController = Cast<AAIController>(GetController()))
-		{
-			AIController->GetBlackboardComponent()->SetValueAsVector(TEXT("MoveLocation"), TargetLocation);
-		}
-		else
-		{
-			UKismetSystemLibrary::PrintString(GetWorld(), FString(TEXT("[AFGEnemyCharacter::SetTargetLocation] Unable to project location on navigation.")));
-		}
-
-
-	}
-
-}
-
 
 void AFPSAIGuard::CheckDistanceToWaypoint()
 {
-	float distance = (GetActorLocation() - Waypoints[CurrentWaypointIndex]->GetActorLocation()).Size();
-
-	if (distance < 1.0f)
+	if (CurrentControlPoint)
 	{
-		if (CurrentWaypointIndex < Waypoints.Num())
+		FVector Delta = GetActorLocation() - CurrentControlPoint->GetActorLocation();
+		float DistanceToGoal = Delta.Size();
+
+		if (DistanceToGoal < 100)
 		{
-			CurrentWaypointIndex++;
-			
+			MoveToNextPatrolPoint();
 		}
-		else
-		{
-			CurrentWaypointIndex = 0;
-		}
-		
+
 	}
 }
 
@@ -106,9 +64,14 @@ void AFPSAIGuard::OnPawnSeen(APawn* SeenPawn)
 			GM->CompleteMission(SeenPawn, false);
 		}
 		SetGuardState(EAIState::Alerted);
+
+		if (AController* Controller = GetController())
+		{
+			Controller->StopMovement();
+		}
+
 	}
 }
-
 
 void AFPSAIGuard::OnPawnHeard(APawn* SeenTarget, const FVector& Location, float Volume)
 {
@@ -141,6 +104,10 @@ void AFPSAIGuard::OnPawnHeard(APawn* SeenTarget, const FVector& Location, float 
 
 	SetGuardState(EAIState::Suspicious);
 
+	if (AController* Controller = GetController())
+	{
+		Controller->StopMovement();
+	}
 
 }
 
@@ -153,22 +120,45 @@ void AFPSAIGuard::ResetOrientation()
 
 	SetActorRotation(OrginalRotation);
 	SetGuardState(EAIState::Idle);
+
+	if (bPatrol)
+	{
+		MoveToNextPatrolPoint();
+	}
+
 }
 
-void AFPSAIGuard::SetGuardState(EAIState NewState)
+void AFPSAIGuard::MoveToNextPatrolPoint()
 {
-	if (GuardState == NewState)
-		return;
+	if (CurrentControlPoint == nullptr || CurrentControlPoint == SecondControlPoint)
+	{
+		CurrentControlPoint = FirstControlPoint;
+	}
 
-	GuardState = NewState;
-
-	OnStateChanged(GuardState);
-
-
+	else
+	{
+		CurrentControlPoint = SecondControlPoint;
+	}
+	
+	UAIBlueprintHelperLibrary::SimpleMoveToLocation(GetController(), CurrentControlPoint->GetActorLocation());
 }
 
+void AFPSAIGuard::SetGuardState(EAIState x)
+{
+	if (GuardState == x)
+	{
+		return;
+	}
 
-// Called every frame
+	GuardState = x;
+	OnRep_GuardState();
+}
+
+void AFPSAIGuard::OnRep_GuardState()
+{
+	OnStateChanged(GuardState);
+}
+
 void AFPSAIGuard::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -178,3 +168,9 @@ void AFPSAIGuard::Tick(float DeltaTime)
 
 }
 
+void AFPSAIGuard::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AFPSAIGuard, GuardState);
+}
